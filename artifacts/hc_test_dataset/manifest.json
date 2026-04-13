@@ -1,0 +1,201 @@
+{
+  "action_space": {
+    "high": [
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "low": [
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0,
+      -1.0
+    ],
+    "shape": [
+      6
+    ],
+    "type": "box"
+  },
+  "dataset_name": "hc_test_dataset",
+  "env_id": "HalfCheetah-v4",
+  "episodes": [
+    {
+      "base_dt": 0.05,
+      "episode_id": 0,
+      "episode_return": -21.333810806274414,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000000.npz",
+      "physics_id": "train_0",
+      "physics_params": {
+        "body_mass_scale": 0.9,
+        "dof_damping_scale": 0.9,
+        "geom_friction_scale": 0.8
+      },
+      "quality": "random",
+      "split": "train",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 1,
+      "episode_return": -28.984844207763672,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000001.npz",
+      "physics_id": "train_1",
+      "physics_params": {
+        "body_mass_scale": 1.0,
+        "dof_damping_scale": 1.0,
+        "geom_friction_scale": 1.0
+      },
+      "quality": "random",
+      "split": "train",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 2,
+      "episode_return": -23.25406265258789,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000002.npz",
+      "physics_id": "train_2",
+      "physics_params": {
+        "body_mass_scale": 1.1,
+        "dof_damping_scale": 0.95,
+        "geom_friction_scale": 1.2
+      },
+      "quality": "random",
+      "split": "train",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 3,
+      "episode_return": -35.673954010009766,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000003.npz",
+      "physics_id": "train_3",
+      "physics_params": {
+        "body_mass_scale": 0.85,
+        "dof_damping_scale": 1.1,
+        "geom_friction_scale": 1.0
+      },
+      "quality": "random",
+      "split": "train",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 4,
+      "episode_return": -11.887397766113281,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000004.npz",
+      "physics_id": "train_4",
+      "physics_params": {
+        "body_mass_scale": 1.15,
+        "dof_damping_scale": 1.15,
+        "geom_friction_scale": 0.9
+      },
+      "quality": "random",
+      "split": "train",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 5,
+      "episode_return": -20.389328002929688,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000005.npz",
+      "physics_id": "train_5",
+      "physics_params": {
+        "body_mass_scale": 0.95,
+        "dof_damping_scale": 0.85,
+        "geom_friction_scale": 1.3
+      },
+      "quality": "random",
+      "split": "train",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 6,
+      "episode_return": -4.2426676750183105,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000006.npz",
+      "physics_id": "val_0",
+      "physics_params": {
+        "body_mass_scale": 1.2,
+        "dof_damping_scale": 1.0,
+        "geom_friction_scale": 1.1
+      },
+      "quality": "random",
+      "split": "val",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 7,
+      "episode_return": 10.743362426757812,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000007.npz",
+      "physics_id": "val_1",
+      "physics_params": {
+        "body_mass_scale": 0.8,
+        "dof_damping_scale": 1.2,
+        "geom_friction_scale": 0.85
+      },
+      "quality": "random",
+      "split": "val",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 8,
+      "episode_return": -17.241474151611328,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000008.npz",
+      "physics_id": "test_0",
+      "physics_params": {
+        "body_mass_scale": 1.3,
+        "dof_damping_scale": 1.1,
+        "geom_friction_scale": 1.25
+      },
+      "quality": "random",
+      "split": "test",
+      "task_name": "HalfCheetah-v4"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 9,
+      "episode_return": 0.13644027709960938,
+      "jitter": 0.1,
+      "num_steps": 80,
+      "path": "episodes/episode_000009.npz",
+      "physics_id": "test_1",
+      "physics_params": {
+        "body_mass_scale": 0.75,
+        "dof_damping_scale": 0.8,
+        "geom_friction_scale": 1.4
+      },
+      "quality": "random",
+      "split": "test",
+      "task_name": "HalfCheetah-v4"
+    }
+  ],
+  "observation_shape": [
+    17
+  ]
+}

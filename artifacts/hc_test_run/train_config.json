@@ -1,0 +1,23 @@
+{
+  "batch_size": 2,
+  "d_model": 64,
+  "dataset_root": "BiSSM/artifacts/hc_test_dataset",
+  "depth": 2,
+  "device": "cpu",
+  "dropout": 0.1,
+  "eval_interval": 1,
+  "gamma": 1.0,
+  "grad_clip": 1.0,
+  "lambda_bis": 0.1,
+  "lr": 0.0003,
+  "model_name": "ct_bissm",
+  "num_workers": 0,
+  "output_dir": "BiSSM/artifacts/hc_test_run",
+  "projection_mode": "last",
+  "seed": 0,
+  "stride": 10,
+  "total_updates": 1,
+  "warmup_steps": 1,
+  "weight_decay": 0.0001,
+  "window_size": 20
+}

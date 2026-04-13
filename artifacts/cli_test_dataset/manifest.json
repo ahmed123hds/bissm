@@ -1,0 +1,191 @@
+{
+  "action_space": {
+    "high": [
+      2.0
+    ],
+    "low": [
+      -2.0
+    ],
+    "shape": [
+      1
+    ],
+    "type": "box"
+  },
+  "dataset_name": "cli_test_dataset",
+  "env_id": "Pendulum-v1",
+  "episodes": [
+    {
+      "base_dt": 0.05,
+      "episode_id": 0,
+      "episode_return": -425.2380065917969,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000000.npz",
+      "physics_id": "pend_train_0",
+      "physics_params": {
+        "gravity": 9.81,
+        "length": 0.95,
+        "mass": 0.85
+      },
+      "quality": "medium",
+      "split": "train",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 1,
+      "episode_return": -442.7533264160156,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000001.npz",
+      "physics_id": "pend_train_1",
+      "physics_params": {
+        "gravity": 9.2,
+        "length": 1.05,
+        "mass": 0.95
+      },
+      "quality": "medium",
+      "split": "train",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 2,
+      "episode_return": -371.4068603515625,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000002.npz",
+      "physics_id": "pend_train_2",
+      "physics_params": {
+        "gravity": 9.81,
+        "length": 1.0,
+        "mass": 1.0
+      },
+      "quality": "medium",
+      "split": "train",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 3,
+      "episode_return": -214.38882446289062,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000003.npz",
+      "physics_id": "pend_train_3",
+      "physics_params": {
+        "gravity": 10.1,
+        "length": 0.9,
+        "mass": 1.1
+      },
+      "quality": "medium",
+      "split": "train",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 4,
+      "episode_return": -264.1982421875,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000004.npz",
+      "physics_id": "pend_train_4",
+      "physics_params": {
+        "gravity": 9.5,
+        "length": 1.1,
+        "mass": 1.15
+      },
+      "quality": "medium",
+      "split": "train",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 5,
+      "episode_return": -276.0127258300781,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000005.npz",
+      "physics_id": "pend_train_5",
+      "physics_params": {
+        "gravity": 10.3,
+        "length": 1.15,
+        "mass": 0.9
+      },
+      "quality": "medium",
+      "split": "train",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 6,
+      "episode_return": -434.4660339355469,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000006.npz",
+      "physics_id": "pend_val_0",
+      "physics_params": {
+        "gravity": 9.2,
+        "length": 1.0,
+        "mass": 1.2
+      },
+      "quality": "medium",
+      "split": "val",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 7,
+      "episode_return": -379.62579345703125,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000007.npz",
+      "physics_id": "pend_val_1",
+      "physics_params": {
+        "gravity": 9.6,
+        "length": 0.85,
+        "mass": 0.8
+      },
+      "quality": "medium",
+      "split": "val",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 8,
+      "episode_return": -446.88519287109375,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000008.npz",
+      "physics_id": "pend_test_0",
+      "physics_params": {
+        "gravity": 10.5,
+        "length": 1.2,
+        "mass": 1.3
+      },
+      "quality": "medium",
+      "split": "test",
+      "task_name": "Pendulum-v1"
+    },
+    {
+      "base_dt": 0.05,
+      "episode_id": 9,
+      "episode_return": -321.5763854980469,
+      "jitter": 0.1,
+      "num_steps": 60,
+      "path": "episodes/episode_000009.npz",
+      "physics_id": "pend_test_1",
+      "physics_params": {
+        "gravity": 8.9,
+        "length": 1.25,
+        "mass": 0.75
+      },
+      "quality": "medium",
+      "split": "test",
+      "task_name": "Pendulum-v1"
+    }
+  ],
+  "observation_shape": [
+    3
+  ]
+}

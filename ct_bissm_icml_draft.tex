@@ -1,0 +1,414 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{multirow}
+
+\hypersetup{colorlinks=true,citecolor=blue,linkcolor=blue,urlcolor=blue}
+\setlength{\parskip}{0.3em}
+\setlength{\parindent}{0pt}
+\setlist[itemize]{topsep=3pt,itemsep=2pt,leftmargin=1.5em}
+\setlist[enumerate]{topsep=3pt,itemsep=2pt,leftmargin=1.7em}
+
+% Theorem environments
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{remark}[theorem]{Remark}
+
+% Macros
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\cM}{\mathcal{M}}
+\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cA}{\mathcal{A}}
+\newcommand{\cD}{\mathcal{D}}
+\newcommand{\cT}{\mathcal{T}}
+\newcommand{\cH}{\mathcal{H}}
+\newcommand{\cL}{\mathcal{L}}
+\newcommand{\dt}{\Delta t}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1 \right\rvert}
+\newcommand{\traj}{\tau}
+\newcommand{\phys}{\theta}
+\newcommand{\physspace}{\Theta}
+\newcommand{\Wass}{\mathcal{W}}
+\newcommand{\Sink}{\mathsf{Sinkhorn}}
+\newcommand{\bisim}{d_{\mathrm{bis}}}
+\newcommand{\Rtg}{\widehat{G}}
+\newcommand{\diag}{\mathrm{diag}}
+
+\title{\bfseries CT-BiSSM: Timestamp-Conditioned State Space Models with Hidden-State Bisimulation\\for Robust In-Context Offline Reinforcement Learning}
+\author{Anonymous Author(s)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Sequence-modeling approaches to offline reinforcement learning typically assume that trajectories are uniformly sampled and that a single hidden state can simultaneously encode task information, control history, and environment-specific physics. These assumptions are brittle in robotics, where observations arrive asynchronously and test-time environments may differ from training environments in friction, mass, damping, or latency. We propose \emph{CT-BiSSM}, a continuous-time selective state space model for in-context offline RL that addresses these two failure modes jointly. The method replaces the fixed discretization step in standard SSM backbones with a timestamp-conditioned update derived from observed inter-arrival gaps, and regularizes the recurrent hidden state using a trajectory-level bisimulation surrogate so that histories with similar task-relevant dynamics but different nuisance physics map to nearby representations. The resulting model preserves linear-time sequence processing while making the timing signal explicit in the state update. This draft focuses on the paper framing, method, analysis, and evaluation protocol needed for a main-track ML submission. We intentionally state only claims that can be validated by experiments and appendix proofs, and we separate core contributions from optional extensions to keep the paper's thesis focused.
+\end{abstract}
+
+\section{Introduction}
+
+Offline reinforcement learning has become a practical route for sequential decision-making in settings where online interaction is expensive or unsafe. Recent work has shown that transformer-style sequence models can recast offline RL as conditional sequence modeling, and subsequent state space model (SSM) variants aim to reduce the quadratic cost of attention while retaining long-horizon memory \cite{chen2021dt, huang2024dmh}. Yet two assumptions common in this line of work are poorly matched to robotics and real-world control.
+
+First, trajectory models are usually trained as if data arrive on a regular clock. In real systems, however, the effective sampling pattern is irregular: packets are delayed, sensors operate at different frequencies, and frames may be dropped. When the model treats a history as a uniformly spaced token sequence, two physically different timing patterns can collapse to the same representation.
+
+Second, sequence backbones often entangle task information with low-frequency environment properties such as friction, mass, or actuator latency. This hurts zero-shot deployment across related environments, especially in the in-context setting where the policy is supposed to adapt from a context window rather than from test-time gradient updates.
+
+This paper targets the \emph{joint} problem: \textbf{how can an in-context offline RL model remain sensitive to irregular timing while becoming \emph{less} sensitive to nuisance physics shift?}
+
+Our answer is to split the problem at the representation level. Timing should enter the recurrent dynamics explicitly through a continuous-time update, while nuisance physics variation should be suppressed through a hidden-state regularizer that preserves task-relevant dynamics. Concretely, we propose \textbf{CT-BiSSM} (Continuous-Time Bisimulation State Space Model), a linear-time selective SSM backbone with two core ingredients:
+\begin{itemize}
+    \item a \textbf{timestamp-conditioned discretization} that uses the observed gap $\dt_t$ to update the recurrent state, and
+    \item a \textbf{trajectory-level hidden-state bisimulation loss} that encourages histories with similar reward/transition behavior to stay close in latent space even when generated under different physics parameters.
+\end{itemize}
+
+The intended contribution is not ``a universal offline RL algorithm.'' Rather, the paper isolates a missing modeling axis in sequence-based offline RL: \emph{time irregularity and physics invariance should be treated as first-class representation problems}. We therefore keep the policy head simple and place the novelty in the backbone and its regularization.
+
+\paragraph{Contributions.}
+This draft is organized around the following concrete claims.
+\begin{enumerate}
+    \item We introduce a timestamp-conditioned selective SSM for in-context offline RL that preserves linear-time sequence processing while making elapsed time part of the recurrent state update.
+    \item We introduce a trajectory-level bisimulation surrogate on the \emph{recurrent hidden state}, rather than on one-step observation embeddings, to improve transfer across unseen physics regimes.
+    \item We provide a conservative theoretical analysis showing (i) Lipschitz sensitivity of the hidden state to timestamp perturbations under stable continuous-time dynamics, and (ii) that minimizing the proposed surrogate aligns hidden-state distances with an empirical bisimulation target up to estimation and optimization error.
+    \item We define an evaluation protocol tailored to the problem setting: cross-physics generalization under asynchronous observations, with ablations that isolate the contribution of timestamps and hidden-state bisimulation separately.
+\end{enumerate}
+
+\section{Problem Setting}
+
+We work with a family of physics-parameterized Markov decision processes.
+
+\begin{definition}[Physics-parameterized MDP family]
+A family $\{\cM_{\phys}\}_{\phys\in\physspace}$ consists of MDPs $\cM_{\phys}=(\cS,\cA,P_{\phys},R,\gamma)$ that share state space, action space, reward function, and discount factor, but differ in transition dynamics through an unobserved physics parameter $\phys \in \physspace$.
+\end{definition}
+
+\begin{definition}[Asynchronous trajectory]
+An asynchronous trajectory of length $T$ is
+\[
+\traj = \{(s_t,a_t,r_t,t_t)\}_{t=1}^{T}, \qquad \dt_t := t_t-t_{t-1}>0,
+\]
+where the inter-arrival gaps $\dt_t$ are not constant.
+\end{definition}
+
+\begin{definition}[In-context offline RL]
+Given offline datasets $\{\cD_{\phys_i}\}_{i=1}^{N}$ collected under multiple physics regimes, a policy is trained offline and must adapt at test time to an unseen environment $\cM_{\phys'}$ using only a finite context window of past transitions, without gradient updates at deployment.
+\end{definition}
+
+The problem is difficult because two distinct sources of variability coexist:
+\begin{itemize}
+    \item \textbf{timing variability}: different gap sequences $\{\dt_t\}$ can change the effective dynamics even when the event order is unchanged;
+    \item \textbf{physics variability}: different $\phys$ values alter the transition kernel even when the task is identical.
+\end{itemize}
+
+A robust sequence model should respond to the first and be comparatively invariant to the second.
+
+\section{Related Work and Research Gap}
+
+\paragraph{Sequence models for offline RL.}
+Decision Transformer reframes offline RL as conditional sequence modeling over returns, states, and actions \cite{chen2021dt}. Decision Mamba and related SSM variants replace attention with linear-time sequence processing to improve efficiency in long-horizon settings \cite{huang2024dmh}. These models, however, operate on discretized token streams and do not explicitly model irregular observation times.
+
+\paragraph{Irregular-time sequence models.}
+Neural ODEs, Latent ODEs, and Neural Controlled Differential Equations address irregularly sampled time series by evolving a latent state in continuous time \cite{chen2018node, rubanova2019latent, kidger2020ncde}. Their setting is closer to ours in temporal structure, but they are not designed for in-context offline RL and often require solver-based inference that is less attractive for long control sequences.
+
+\paragraph{Invariant representation learning in RL.}
+DBC, MICo, and SimSR use bisimulation-style objectives to learn state representations that ignore nuisance variation \cite{zhang2020dbc, castro2021mico, zhu2022simsr}. These methods focus on one-step encoders or value-centric state similarity, not on hidden states of a recurrent sequence model conditioned on full history.
+
+\paragraph{Conservative offline RL.}
+Behavior-regularized methods such as BRAC and in-sample approaches such as IQL address distribution shift in offline RL through policy or value regularization \cite{wu2019brac, kostrikov2022iql}. Our proposal is complementary: its main goal is a more robust \emph{context representation}, not a replacement for conservative critics.
+
+\paragraph{Gap.}
+To our knowledge, prior work does not simultaneously study: (i) linear-time sequence modeling for offline RL, (ii) explicit conditioning on irregular timestamps inside the recurrent update, and (iii) bisimulation-style regularization of the \emph{history-dependent hidden state} for transfer across physics regimes. This is the niche targeted by CT-BiSSM.
+
+\begin{table}[t]
+\centering
+\caption{Positioning of CT-BiSSM relative to nearby directions.}
+\label{tab:positioning}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{lccc}
+\toprule
+Method & Linear-time backbone & Handles irregular time & Hidden-state invariance \\
+\midrule
+Decision Transformer & No & No & No \\
+Decision Mamba / hybrid SSMs & Yes & No & No \\
+Neural ODE / CDE sequence models & Typically no & Yes & No \\
+DBC / MICo / SimSR & -- & No & One-step only \\
+\textbf{CT-BiSSM} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Method}
+
+\subsection{Backbone: timestamp-conditioned selective state space model}
+
+At each step $t$, the model receives a token
+\[
+ x_t = [\phi_s(s_t) ; \phi_a(a_{t-1}) ; \phi_r(\Rtg_t)],
+\]
+where $\Rtg_t$ is the return-to-go prompt and $\phi_s,\phi_a,\phi_r$ are learnable encoders. Unlike standard discrete-time backbones, CT-BiSSM also uses the observed elapsed time $\dt_t$ inside the state update.
+
+We start from a continuous-time linear state equation
+\begin{equation}
+\dot{h}(t) = A h(t) + B x(t),
+\label{eq:cts}
+\end{equation}
+and discretize it over the observed gap $\dt_t$ using zero-order hold:
+\begin{equation}
+\bar A_t = \exp(A\dt_t), \qquad
+\bar B_t = A^{-1}(\bar A_t - I)B.
+\label{eq:disc}
+\end{equation}
+The recurrent update is then
+\begin{equation}
+ h_t = \bar A_t h_{t-1} + \bar B_t x_t.
+\label{eq:recurrence}
+\end{equation}
+When $\dt_t$ is small, the previous state is largely preserved; when $\dt_t$ is large, stale information decays more strongly. Standard fixed-step SSMs are recovered as a special case when $\dt_t \equiv \Delta$.
+
+In practice, we use a stable diagonal or block-diagonal parameterization of $A$, which makes \cref{eq:disc} inexpensive and preserves linear complexity in sequence length.
+
+\subsection{Policy head and base training loss}
+
+Given $h_t$, the policy head predicts the action distribution conditioned on the return prompt:
+\begin{equation}
+\pi_\psi(a_t \mid h_t, \Rtg_t).
+\end{equation}
+The base sequence-modeling loss is the negative log-likelihood of dataset actions,
+\begin{equation}
+\cL_{\mathrm{act}} = -\E_{(\traj, t)\sim \cD} \log \pi_\psi(a_t \mid h_t, \Rtg_t).
+\label{eq:actloss}
+\end{equation}
+This keeps the training setup close to Decision Transformer-style offline learning and avoids introducing a second major algorithmic novelty.
+
+\subsection{Trajectory-level hidden-state bisimulation surrogate}
+
+The second ingredient of CT-BiSSM is a regularizer on the recurrent representation. We want histories generated under different physics to remain close when they imply similar task-relevant future behavior, and to separate when the induced reward/transition behavior differs.
+
+Let $\traj_i$ and $\traj_j$ be task-matched trajectories. We define an empirical bisimulation surrogate
+\begin{equation}
+\widehat{d}_{\mathrm{bis}}(\traj_i,\traj_j)
+= \abs{\bar r_i - \bar r_j} + \gamma \, \Sink(\mu_i,\mu_j),
+\label{eq:emp_bisim}
+\end{equation}
+where $\bar r_i$ is the mean reward along the window, and $\mu_i$ denotes the empirical next-state distribution in a feature space $g(s')$. The transport term is implemented with a Sinkhorn approximation between the corresponding empirical measures. This choice avoids requiring exact transition kernels while still encoding how different two windows are in task-relevant dynamics.
+
+We then match latent distances to this surrogate:
+\begin{equation}
+\cL_{\mathrm{bis}}
+= \E_{(i,j)} \Big( \norm{P h_T^{(i)} - P h_T^{(j)}}_2 - \widehat{d}_{\mathrm{bis}}(\traj_i,\traj_j) \Big)^2,
+\label{eq:bisloss}
+\end{equation}
+where $P$ is a small projection head used only for the regularizer. Positive and negative pairs are sampled by matching task identity while varying jitter and physics.
+
+This is the core representational hypothesis of the paper: the recurrent hidden state should organize windows by \emph{task-relevant dynamics}, not by nuisance differences in elapsed-time realization or environment identity alone.
+
+\subsection{Overall objective and implementation scope}
+
+The full training loss is
+\begin{equation}
+\cL_{\mathrm{total}} = \cL_{\mathrm{act}} + \lambda_{\mathrm{bis}} \cL_{\mathrm{bis}}.
+\label{eq:totalloss}
+\end{equation}
+The paper's main thesis does \emph{not} depend on adding value critics, behavior-cloning bridges, or extra uncertainty penalties. Such components can be studied later as orthogonal extensions. For the main submission, we keep the method intentionally narrow so the evaluation isolates the effect of timestamp conditioning and hidden-state bisimulation.
+
+\section{Analysis}
+
+This section states moderate claims that are appropriate for a main-paper draft and can be fully proved in the appendix.
+
+\begin{assumption}[Stable continuous-time dynamics]
+The matrix $A$ in \cref{eq:cts} is Hurwitz, i.e., all eigenvalues have strictly negative real part bounded above by $-\alpha < 0$.
+\end{assumption}
+
+\begin{proposition}[Sensitivity to timestamp perturbations]
+\label{prop:jitter}
+Consider two histories with the same token sequence $\{x_t\}_{t=1}^{T}$ but different gap sequences $\{\dt_t\}$ and $\{\dt'_t\}$ such that $\max_t \abs{\dt_t-\dt'_t} \le \varepsilon_t$. Under the update in \cref{eq:recurrence} and the stability assumption above, there exists a constant $C_x$ depending on $A$, $B$, and $\max_t \norm{x_t}$ such that
+\begin{equation}
+\norm{h_T - h'_T}_2 \le C_x \varepsilon_t.
+\label{eq:jitterbound}
+\end{equation}
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+The matrix exponential is smooth in $\dt_t$, so $\norm{\bar A_t-\bar A'_t}$ and $\norm{\bar B_t-\bar B'_t}$ are each $O(\abs{\dt_t-\dt'_t})$. Unrolling the recurrence yields a telescoping sum of perturbation terms. Stability of $A$ makes the product terms contractive, giving a finite Lipschitz constant for the final hidden state.
+\end{proof}
+
+\begin{assumption}[Consistent empirical bisimulation surrogate]
+For task-matched windows, the empirical target $\widehat{d}_{\mathrm{bis}}$ approximates an underlying task-relevant bisimulation distance up to estimation error $\varepsilon_{\mathrm{est}}$.
+\end{assumption}
+
+\begin{proposition}[Representation alignment under bisimulation training]
+\label{prop:bisim}
+If the model is trained so that $\cL_{\mathrm{bis}} \le \varepsilon_{\mathrm{opt}}$, then for sampled pairs $(i,j)$,
+\begin{equation}
+\Big| \norm{P h_T^{(i)} - P h_T^{(j)}}_2 - d_{\mathrm{bis}}(\traj_i,\traj_j) \Big|
+\le \sqrt{\varepsilon_{\mathrm{opt}}} + \varepsilon_{\mathrm{est}}.
+\label{eq:bisim_align}
+\end{equation}
+\end{proposition}
+
+\begin{proof}[Proof sketch]
+The claim follows by the triangle inequality: decompose the deviation from the true target into optimization error relative to the empirical loss and estimation error of the empirical surrogate relative to the target distance.
+\end{proof}
+
+\begin{remark}[What the theory does and does not claim]
+The analysis supports two specific statements: CT-BiSSM is locally sensitive to timing perturbations in a controlled way, and the regularizer aligns hidden-state geometry with a task-level distance up to measurable error terms. It does \emph{not} by itself prove global policy optimality or superiority over all conservative offline RL methods.
+\end{remark}
+
+\section{Experimental Protocol}
+
+A major reason sequence-model papers get rejected is that the benchmark does not match the claim. Since CT-BiSSM is about \emph{irregular timing} and \emph{physics transfer}, the evaluation must stress exactly those dimensions.
+
+\subsection{Benchmark construction}
+
+We propose to evaluate on MuJoCo-style locomotion families with controlled physics randomization. For each base task (e.g., Hopper, Walker2d, HalfCheetah), construct multiple environments by varying friction, damping, body mass, or actuator strength. Offline datasets are collected separately for each regime.
+
+To model asynchronous observations, each trajectory is post-processed or generated with one or more of the following perturbations:
+\begin{itemize}
+    \item timestamp jitter sampled from a bounded distribution,
+    \item random frame dropping,
+    \item mixed sensor frequencies mapped to a single event stream.
+\end{itemize}
+
+Training uses a subset of physics regimes and jitter levels. Test-time evaluation uses unseen combinations, including physics settings and timing distributions not observed during training.
+
+\subsection{Baselines}
+
+The baseline set should include both strong sequence models and strong offline RL references:
+\begin{itemize}
+    \item Decision Transformer,
+    \item Decision Mamba or the closest available hybrid SSM baseline,
+    \item a time-aware transformer baseline using explicit $\dt_t$ embeddings but no continuous-time discretization,
+    \item an irregular-time latent dynamics baseline such as a Neural ODE/CDE policy encoder,
+    \item a strong offline RL reference such as IQL for score calibration on the same datasets.
+\end{itemize}
+
+The main controlled comparisons should keep the action head and training budget aligned across methods whenever possible.
+
+\subsection{Metrics}
+
+We recommend reporting four metrics classes:
+\begin{enumerate}
+    \item \textbf{return}: normalized score on each test regime;
+    \item \textbf{cross-physics generalization}: performance gap between seen-physics and unseen-physics environments;
+    \item \textbf{timing robustness}: degradation as jitter amplitude increases;
+    \item \textbf{representation diagnostics}: whether hidden states cluster by task rather than by physics identity.
+\end{enumerate}
+
+\subsection{Ablations}
+
+The paper should include at least the following ablations:
+\begin{itemize}
+    \item fixed-step SSM versus timestamp-conditioned SSM;
+    \item no bisimulation regularizer versus full CT-BiSSM;
+    \item time embedding only versus true continuous-time discretization;
+    \item same-physics training only versus multi-physics training;
+    \item pair construction variants for the bisimulation surrogate.
+\end{itemize}
+
+\subsection{Primary hypotheses}
+
+The experiments are designed to validate four hypotheses:
+\begin{enumerate}
+    \item using actual elapsed time reduces degradation under jitter compared with fixed-step backbones;
+    \item hidden-state bisimulation improves transfer to unseen physics even when nominal task identity is unchanged;
+    \item the combination outperforms either ingredient alone under joint shift;
+    \item the gains come from representation robustness rather than from increased model size.
+\end{enumerate}
+
+\section{Scope, Limitations, and Reviewer-Facing Clarifications}
+
+This paper should be framed carefully.
+
+\begin{itemize}
+    \item \textbf{Not a universal offline RL method.} The main contribution is a more robust sequence representation for in-context offline RL. Conservative value learning is outside the core scope.
+    \item \textbf{Bisimulation target quality matters.} If the surrogate in \cref{eq:emp_bisim} is noisy, regularization quality will degrade. The empirical section should therefore include sensitivity analyses for pair mining and transport estimation.
+    \item \textbf{Benchmark design is part of the contribution.} Standard D4RL alone is insufficient because it does not naturally test irregular timing under controlled physics shift.
+    \item \textbf{Theory is intentionally modest.} The paper should avoid broad claims such as exact physics invariance or provable optimality unless those claims are fully justified.
+\end{itemize}
+
+\section{Conclusion}
+
+CT-BiSSM is a focused proposal for sequence-based offline RL under two under-studied but practical failure modes: asynchronous observations and cross-physics deployment. The method keeps the efficient sequence-processing advantages of selective SSMs, injects elapsed time directly into the recurrent update, and regularizes hidden-state geometry using a trajectory-level bisimulation surrogate. The resulting paper story is intentionally narrow: learn better context representations first, then measure whether those representations improve zero-shot transfer under irregular timing and physics shift.
+
+\appendix
+\section{Appendix Plan for a Full Submission}
+
+For a complete submission, the appendix should include:
+\begin{enumerate}
+    \item full proofs for \cref{prop:jitter,prop:bisim};
+    \item precise dataset generation and physics-randomization protocol;
+    \item pair-mining details for the bisimulation surrogate;
+    \item full hyperparameter tables and training budgets;
+    \item additional visualizations of latent geometry and failure cases.
+\end{enumerate}
+
+\begin{thebibliography}{99}
+
+\bibitem{chen2021dt}
+L.~Chen, K.~Lu, A.~Rajeswaran, K.~Lee, A.~Grover, M.~Laskin, P.~Abbeel,
+A.~Srinivas, and I.~Mordatch.
+Decision Transformer: Reinforcement Learning via Sequence Modeling.
+\textit{NeurIPS}, 2021.
+
+\bibitem{huang2024dmh}
+S.~Huang, J.~Hu, Z.~Yang, L.~Yang, T.~Luo, H.~Chen, L.~Sun, and B.~Yang.
+Decision Mamba: Reinforcement Learning via Hybrid Selective Sequence Modeling.
+\textit{NeurIPS}, 2024.
+
+\bibitem{chen2018node}
+R.~T.~Q. Chen, Y.~Rubanova, J.~Bettencourt, and D.~Duvenaud.
+Neural Ordinary Differential Equations.
+\textit{NeurIPS}, 2018.
+
+\bibitem{rubanova2019latent}
+Y.~Rubanova, R.~T.~Q. Chen, and D.~Duvenaud.
+Latent ODEs for Irregularly-Sampled Time Series.
+\textit{NeurIPS}, 2019.
+
+\bibitem{kidger2020ncde}
+P.~Kidger, J.~Morrill, J.~Foster, and T.~Lyons.
+Neural Controlled Differential Equations for Irregular Time Series.
+\textit{NeurIPS}, 2020.
+
+\bibitem{zhang2020dbc}
+A.~Zhang, Z.~McAllister, R.~Calandra, Y.~Gal, and S.~Levine.
+Learning Invariant Representations for Reinforcement Learning without Reconstruction.
+\textit{ICLR}, 2021.
+
+\bibitem{castro2021mico}
+P.~S. Castro.
+MICo: Improved Representations via Sampling-Based State Similarity for Markov Decision Processes.
+\textit{NeurIPS}, 2021.
+
+\bibitem{zhu2022simsr}
+R.~Zhu, E.~K. Wei, B.~Eysenbach, P.~Abbeel, and A.~Gupta.
+SimSR: Simple Distance-Based State Representation for Deep Reinforcement Learning.
+\textit{AAAI}, 2023.
+
+\bibitem{wu2019brac}
+Y.~Wu, A.~Tucker, O.~Nachum, B.~Norouzi, A.~Schaul, V.~Dumoulin,
+L.~Alekseev, M.~Hessel, and N.~de Freitas.
+Behavior Regularized Offline Reinforcement Learning.
+\textit{arXiv:1911.11361}, 2019.
+
+\bibitem{kostrikov2022iql}
+I.~Kostrikov, A.~Nair, and S.~Levine.
+Offline Reinforcement Learning with Implicit Q-Learning.
+\textit{ICLR}, 2022.
+
+\end{thebibliography}
+
+\end{document}

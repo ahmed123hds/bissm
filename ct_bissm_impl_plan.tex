@@ -1,0 +1,539 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{booktabs,array,tabularx,multirow}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{longtable}
+\usepackage{graphicx}
+\usepackage{caption}
+\usepackage{setspace}
+\usepackage{colortbl}
+\usepackage{mathtools}
+\hypersetup{colorlinks=true,linkcolor=blue!60!black,urlcolor=blue!60!black,citecolor=blue!60!black}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+\renewcommand{\arraystretch}{1.2}
+\definecolor{accent}{HTML}{163B65}
+\definecolor{soft}{HTML}{EEF3F8}
+\definecolor{rule}{HTML}{D6E0EB}
+\titleformat{\section}{\large\bfseries\color{accent}}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalsize\bfseries\color{accent}}{\thesubsection}{0.5em}{}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{CT-BiSSM Implementation Note}
+\rhead{Ahmed}
+\cfoot{\thepage}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{2.0cm}
+{\Huge\bfseries\color{accent} CT-BiSSM\\[0.3em]Implementation Details, Architecture, and Benchmark Plan\par}
+\vspace{1.0cm}
+{\Large A training-ready technical note derived from the ICML-style draft\par}
+\vspace{1.6cm}
+\begin{tcolorbox}[colback=soft,colframe=rule,width=0.9\textwidth,arc=2mm]
+\textbf{Purpose.} This document turns the research idea into a trainable first version. It specifies the recommended architecture, losses, dataset choices, benchmark design, ablations, and the order in which to build the system so that implementation remains focused and debuggable.
+\end{tcolorbox}
+\vfill
+{\large Ahmed\\April 2026\par}
+\end{titlepage}
+
+\section{Executive Summary}
+
+The first trainable version should be deliberately narrow. Do \emph{not} begin with the most ambitious variant containing dual heads, adaptive KL control, and hallucination-mass regularization. The safest and shortest path to a publishable result is to start from the core idea only:
+
+\begin{tcolorbox}[colback=soft,colframe=rule,arc=2mm]
+\[
+\mathcal{L}_{\text{total}} = \mathcal{L}_{\text{act}} + \lambda_{\text{bis}}\,\mathcal{L}_{\text{bis}}.
+\]
+\textbf{Core model:} timestamp-conditioned state-space backbone + Gaussian action head + trajectory-level bisimulation regularization.
+\end{tcolorbox}
+
+This first version directly tests the paper's central claim: whether explicit elapsed-time conditioning and hidden-state invariance improve zero-shot offline adaptation under irregular sampling and physics shift.
+
+\section{Core Recommendation}
+
+The recommended first implementation contains four components:
+\begin{enumerate}[leftmargin=1.5em]
+    \item \textbf{Timestamp-conditioned SSM backbone}
+    \item \textbf{Single Gaussian action head}
+    \item \textbf{Trajectory-level bisimulation loss}
+    \item \textbf{Custom offline datasets with physics randomization and timestamp jitter}
+\end{enumerate}
+
+This version is much easier to debug than the full proposal, yet it still preserves the real novelty of the paper. The more elaborate offline-RL safety mechanisms can be added only after this baseline works.
+
+\section{Complete Architecture}
+
+\subsection{Input at Each Timestep}
+For continuous-control offline RL, define the token at time step $t$ as
+\[
+ z_t = [s_t,\ a_{t-1},\ r_{t-1},\ \widehat{G}_t,\ \Delta t_t,\ d_t],
+\]
+where:
+\begin{itemize}[leftmargin=1.5em]
+    \item $s_t$ is the current state,
+    \item $a_{t-1}$ is the previous action,
+    \item $r_{t-1}$ is the previous reward,
+    \item $\widehat{G}_t$ is the return-to-go,
+    \item $\Delta t_t = t_t - t_{t-1}$ is the actual elapsed time,
+    \item $d_t$ is the terminal or done flag.
+\end{itemize}
+
+In practice, use a log-scaled elapsed time:
+\[
+\widetilde{\Delta t}_t = \log\!\left(1 + \frac{\Delta t_t}{\Delta t_{\text{base}}}\right).
+\]
+This avoids instability caused by large differences in raw time gaps.
+
+\subsection{Token Encoders}
+Use separate lightweight encoders and then concatenate their outputs:
+\begin{align*}
+ e_s(s_t) &:\ \text{MLP}(\texttt{state\_dim} \rightarrow 256 \rightarrow 256),\\
+ e_a(a_{t-1}) &:\ \text{MLP}(\texttt{action\_dim} \rightarrow 128 \rightarrow 128),\\
+ e_r(r_{t-1}) &:\ \text{Linear}(1 \rightarrow 64),\\
+ e_G(\widehat{G}_t) &:\ \text{Linear}(1 \rightarrow 64),\\
+ e_t(\widetilde{\Delta t}_t) &:\ \text{Linear}(1 \rightarrow 64),\\
+ e_d(d_t) &:\ \text{Embedding}(2 \rightarrow 16)\ \text{or}\ \text{Linear}(1 \rightarrow 16).
+\end{align*}
+
+Then form the model input:
+\[
+ x_t = W_{\text{in}}\,[e_s(s_t); e_a(a_{t-1}); e_r(r_{t-1}); e_G(\widehat{G}_t); e_t(\widetilde{\Delta t}_t); e_d(d_t)].
+\]
+The recommended model width for the first version is
+\[
+ d_{\text{model}} = 256.
+\]
+
+\subsection{Timestamp-Conditioned SSM Block}
+For the first implementation, use a custom diagonal continuous-time recurrent block in plain PyTorch rather than modifying a fused Mamba kernel. The prototype can be sequential; correctness matters more than kernel-level speed at this stage.
+
+Parameterize a stable diagonal continuous-time state matrix by
+\[
+A = -\operatorname{softplus}(a),
+\]
+so each hidden dimension decays at a non-positive rate.
+
+For each step, compute
+\[
+\Lambda_t = \exp(A\,\Delta t_t).
+\]
+Then update the hidden state using
+\[
+u_t = W_u x_t, \qquad g_t = \sigma(W_g x_t),
+\]
+\[
+h_t = \Lambda_t \odot h_{t-1} + (1-\Lambda_t)\odot (g_t \odot u_t).
+\]
+
+This retains the intended semantics:
+\begin{itemize}[leftmargin=1.5em]
+    \item small $\Delta t_t$ preserves memory,
+    \item large $\Delta t_t$ decays stale information.
+\end{itemize}
+
+Finally apply residual mixing and normalization:
+\[
+y_t = \operatorname{LayerNorm}(h_t + W_o h_t).
+\]
+
+\subsection{Backbone Depth}
+The recommended initial setting is:
+\begin{itemize}[leftmargin=1.5em]
+    \item $d_{\text{model}} = 256$
+    \item number of layers $= 4$
+    \item dropout $= 0.1$
+    \item inner expansion $= 2\times$
+\end{itemize}
+
+This is large enough to test the idea and small enough to train reliably.
+
+\subsection{Action Head}
+For continuous actions, use a Gaussian action head:
+\[
+(\mu_t, \log \sigma_t) = f_{\text{head}}(h_t, \widehat{G}_t).
+\]
+
+Train the policy by action likelihood:
+\[
+\mathcal{L}_{\text{act}} = -\log \pi(a_t \mid h_t, \widehat{G}_t).
+\]
+
+Recommended implementation:
+\begin{itemize}[leftmargin=1.5em]
+    \item head input: $[h_t; e_G(\widehat{G}_t)]$
+    \item MLP: $(256+64) \rightarrow 256 \rightarrow 256 \rightarrow 2\cdot \texttt{action\_dim}$
+    \item use a tanh-squashed Gaussian if the environment has bounded actions.
+\end{itemize}
+
+For the first version, one action head is enough. The behavior head can be added later as an extension.
+
+\subsection{Bisimulation Projection Head}
+Use a small projection head solely for the bisimulation regularizer:
+\[
+q_t = P(h_t), \qquad P:\ 256 \rightarrow 128 \rightarrow 64.
+\]
+Use the last hidden state in a context window:
+\[
+q_i = P(h_T^{(i)}).
+\]
+
+\section{Practical Bisimulation Loss}
+
+\subsection{Context Window Definition}
+Train on fixed-length windows of transitions:
+\[
+\tau = \{(s_t, a_t, r_t, \Delta t_t)\}_{t=t_0}^{t_0+K-1}.
+\]
+Recommended initial setting:
+\begin{itemize}[leftmargin=1.5em]
+    \item context length $K = 50$
+    \item later try $K = 100$
+\end{itemize}
+
+\subsection{Pair Construction}
+For each anchor window, sample:
+\begin{itemize}[leftmargin=1.5em]
+    \item a \textbf{positive pair}: same task family, different physics regime, similar return bucket;
+    \item a \textbf{negative pair}: same task family but larger physics mismatch or markedly different future dynamics.
+\end{itemize}
+
+This focuses the representation on task-relevant invariance while remaining sensitive to true dynamics differences.
+
+\subsection{Empirical Bisimulation Target}
+A practical surrogate for the bisimulation distance is
+\[
+\widehat{d}_{\text{bis}}(i,j) = \alpha_r \lvert \bar r_i - \bar r_j \rvert + \alpha_s\,\operatorname{Sinkhorn}(\mu_i, \mu_j),
+\]
+where:
+\begin{itemize}[leftmargin=1.5em]
+    \item $\bar r_i$ is the mean reward in window $i$,
+    \item $\mu_i$ is an empirical distribution of next-state features,
+    \item the transport term can later be implemented with Sinkhorn distance.
+\end{itemize}
+
+For the first trainable version, use a simpler and more stable surrogate:
+\[
+\widehat{d}_{\text{bis}}(i,j) = 0.5\lvert \bar r_i - \bar r_j \rvert + 0.5\lVert \bar g_i - \bar g_j \rVert_2,
+\]
+where $\bar g_i$ is the mean next-state feature over the window.
+
+Then optimize
+\[
+\mathcal{L}_{\text{bis}} = \left(\lVert q_i - q_j \rVert_2 - \widehat{d}_{\text{bis}}(i,j)\right)^2.
+\]
+
+This is easier to debug than an exact transport-based formulation and is sufficient for the first paper version.
+
+\section{Datasets and Benchmarks}
+
+\subsection{Main Benchmark: Custom Offline Datasets on Gymnasium MuJoCo}
+The best main benchmark is a custom offline dataset suite built from Gymnasium MuJoCo tasks and stored with Minari. The recommended first tasks are:
+\begin{itemize}[leftmargin=1.5em]
+    \item HalfCheetah
+    \item Hopper
+    \item Walker2d
+\end{itemize}
+
+Why this choice:
+\begin{itemize}[leftmargin=1.5em]
+    \item these are standard continuous-control benchmarks,
+    \item Minari is designed for offline RL dataset generation and loading,
+    \item custom data generation lets you control both physics variation and timestamp irregularity.
+\end{itemize}
+
+\subsection{Physics Randomization}
+Create multiple environment regimes by varying:
+\begin{itemize}[leftmargin=1.5em]
+    \item body mass,
+    \item joint damping,
+    \item friction,
+    \item actuator strength.
+\end{itemize}
+
+A good first split per task is:
+\begin{itemize}[leftmargin=1.5em]
+    \item 6 training physics regimes,
+    \item 2 validation regimes,
+    \item 2 unseen test regimes.
+\end{itemize}
+
+Example multipliers:
+\begin{itemize}[leftmargin=1.5em]
+    \item mass: $\{0.8, 0.9, 1.0, 1.1, 1.2\}$
+    \item friction: $\{0.7, 1.0, 1.3\}$
+    \item damping: $\{0.8, 1.0, 1.2\}$
+\end{itemize}
+
+Do not use the full Cartesian product initially. Select a small but meaningful set of 8--10 regimes.
+
+\subsection{Dataset Quality Levels}
+For each regime, collect datasets with three quality levels:
+\begin{itemize}[leftmargin=1.5em]
+    \item random,
+    \item medium,
+    \item expert.
+\end{itemize}
+
+Then evaluate on mixtures such as medium-only and medium-plus-expert. This follows the basic philosophy of offline RL benchmark design while still allowing custom stress tests.
+
+\subsection{Second Benchmark: LocoMuJoCo}
+Use LocoMuJoCo as a stronger secondary benchmark after the main prototype is working. It is especially useful because it already supports more realistic locomotion with domain randomization over physical parameters.
+
+However, it is heavier to debug and should not be the first environment used for model development.
+
+\subsection{Optional Benchmark: Meta-World}
+Meta-World can be added later if task generalization becomes important, but it is not the best first benchmark because the paper's central claim is about timing and physics shift rather than multi-task manipulation.
+
+\subsection{Recommended Benchmark Order}
+\begin{enumerate}[leftmargin=1.5em]
+    \item HalfCheetah with custom physics and timestamp jitter
+    \item Hopper
+    \item Walker2d
+    \item Ant or LocoMuJoCo later
+    \item Meta-World only if the paper expands beyond the initial scope
+\end{enumerate}
+
+\section{How to Generate the Offline Datasets}
+
+For each task and physics regime:
+\begin{enumerate}[leftmargin=1.5em]
+    \item instantiate the environment with fixed physics parameters,
+    \item collect episodes under a chosen behavior policy,
+    \item store transitions with observation, action, reward, next observation, terminal flag, timestamp, elapsed time, and physics identifier.
+\end{enumerate}
+
+\subsection{Behavior Policies for Collection}
+Use three data collectors:
+\begin{itemize}[leftmargin=1.5em]
+    \item random policy,
+    \item partially trained SAC policy,
+    \item near-converged SAC policy.
+\end{itemize}
+
+This yields random, medium, and expert data quality splits.
+
+\subsection{Asynchronous Timing}
+Add irregular timing either during collection or by post-processing:
+\[
+\Delta t_t = \Delta t_{\text{base}}(1 + \epsilon_t), \qquad \epsilon_t \sim \operatorname{Uniform}[-\rho, \rho].
+\]
+Use jitter amplitudes
+\[
+\rho \in \{0.0, 0.1, 0.2, 0.4\}.
+\]
+
+You can also add dropped frames with probability $p_{\text{drop}}$, but simple jitter is enough for the first version.
+
+\section{Training Protocol}
+
+\subsection{Sequence Training}
+Train on sliding or randomly sampled windows:
+\begin{itemize}[leftmargin=1.5em]
+    \item context length: 50
+    \item stride: 10, or random subsequences
+\end{itemize}
+
+Each batch should include both:
+\begin{itemize}[leftmargin=1.5em]
+    \item standard windows for action prediction,
+    \item paired windows for bisimulation regularization.
+\end{itemize}
+
+\subsection{Optimization Settings}
+Recommended initial hyperparameters:
+\begin{center}
+\begin{tabular}{>{\bfseries}p{0.34\textwidth}p{0.46\textwidth}}
+\toprule
+Optimizer & AdamW \\
+Learning rate & $3 \times 10^{-4}$ \\
+Weight decay & $10^{-4}$ \\
+Batch size & 64 \\
+Warmup & 5k steps \\
+Total updates & 200k \\
+Gradient clipping & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Loss Weighting}
+Start with
+\[
+\lambda_{\text{bis}} = 0.1.
+\]
+Then sweep
+\[
+\{0.01,\ 0.05,\ 0.1,\ 0.2\}.
+\]
+If action prediction collapses, lower the bisimulation weight.
+
+\subsection{Normalization}
+Always normalize using training data statistics only:
+\begin{itemize}[leftmargin=1.5em]
+    \item state mean and standard deviation,
+    \item reward or return-to-go scaling,
+    \item elapsed time divided by base $\Delta t$ before applying $\log(1 + \cdot)$.
+\end{itemize}
+
+\section{Required Baselines}
+
+You need both sequence-model baselines and offline-RL score references.
+
+\subsection{Sequence Baselines}
+\begin{enumerate}[leftmargin=1.5em]
+    \item Decision Transformer
+    \item Decision Mamba
+    \item Transformer with explicit time embedding
+    \item Neural CDE encoder plus policy head
+\end{enumerate}
+
+\subsection{Offline RL Baseline}
+\begin{enumerate}[leftmargin=1.5em, start=5]
+    \item Implicit Q-Learning (IQL)
+\end{enumerate}
+
+This baseline set is enough for the first paper version.
+
+\section{Ablations You Must Run}
+
+These ablations are essential.
+
+\subsection{Time Conditioning}
+Compare:
+\begin{itemize}[leftmargin=1.5em]
+    \item fixed-step SSM,
+    \item SSM with scalar time embedding only,
+    \item full timestamp-conditioned continuous-time update.
+\end{itemize}
+
+\subsection{Bisimulation}
+Compare:
+\begin{itemize}[leftmargin=1.5em]
+    \item no bisimulation,
+    \item bisimulation on the last hidden state,
+    \item bisimulation on the mean hidden state of the window.
+\end{itemize}
+
+\subsection{Joint Shift Stress Test}
+Evaluate under the full 2 $\times$ 2 setting:
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+Setting & Seen physics & Unseen physics \\
+\midrule
+No jitter & $\checkmark$ & $\checkmark$ \\
+High jitter & $\checkmark$ & $\checkmark$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+This table is the core of the paper because it isolates exactly what the method claims to solve.
+
+\subsection{Model Size Control}
+Parameter-match the main baselines as closely as possible. Otherwise reviewers may argue that gains come from scale rather than the proposed design.
+
+\section{Implementation Roadmap}
+
+The project should be built in phases.
+
+\subsection{Phase 1: Data Pipeline and Baseline}
+Implement:
+\begin{itemize}[leftmargin=1.5em]
+    \item Minari dataset generation and loading,
+    \item one clean sequence baseline such as Decision Transformer or sequence behavioral cloning,
+    \item evaluation scripts for seen and unseen regimes.
+\end{itemize}
+Goal: verify that the data pipeline and offline evaluation are correct.
+
+\subsection{Phase 2: Timestamp Conditioning Only}
+Implement:
+\begin{itemize}[leftmargin=1.5em]
+    \item the custom continuous-time SSM block,
+    \item no bisimulation yet.
+\end{itemize}
+Goal: test whether actual elapsed time helps under injected jitter.
+
+\subsection{Phase 3: Add Bisimulation}
+Implement:
+\begin{itemize}[leftmargin=1.5em]
+    \item pair sampler,
+    \item projection head,
+    \item simple mean-feature surrogate for the bisimulation target.
+\end{itemize}
+Goal: test whether hidden-state invariance improves unseen-physics transfer.
+
+\subsection{Phase 4: Stronger Distance Target}
+Replace the simple surrogate with a Sinkhorn or transport-style target after the simplified version is stable.
+
+\subsection{Phase 5: Optional Extensions}
+Only after a positive core result:
+\begin{itemize}[leftmargin=1.5em]
+    \item dual-head behavior and policy version,
+    \item adaptive KL bridge,
+    \item hallucination-mass regularization.
+\end{itemize}
+
+\section{Recommended Version 1 Specification}
+
+\begin{center}
+\rowcolors{2}{soft}{white}
+\begin{tabularx}{0.94\textwidth}{>{\bfseries}p{0.28\textwidth}X}
+\toprule
+Component & Recommended choice \\
+\midrule
+Environments & HalfCheetah, Hopper, Walker2d \\
+Dataset format & Custom Minari datasets \\
+Physics regimes & 8 regimes per task \\
+Data qualities & Random, medium, expert \\
+Jitter amplitudes & $0.0, 0.1, 0.2, 0.4$ \\
+Model width & $d_{\text{model}} = 256$ \\
+Depth & 4 layers \\
+Context length & 50 \\
+Backbone & Diagonal continuous-time SSM \\
+Action output & Single Gaussian head \\
+Auxiliary head & One bisimulation projection head \\
+Loss & $\mathcal{L}_{\text{act}} + 0.1\,\mathcal{L}_{\text{bis}}$ \\
+Main baselines & DT, DT+time, Decision Mamba, Neural CDE, IQL \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Blunt Practical Recommendation}
+
+Do not begin with the most complicated version of the paper. Start from:
+\begin{center}
+\fbox{\parbox{0.88\textwidth}{\centering
+\textbf{CT-SSM backbone + Gaussian action head + hidden-state bisimulation + custom MuJoCo/Minari datasets}
+}}
+\end{center}
+
+This is the shortest path to a real result. If it works, you already have a paper. The more elaborate support-control mechanisms can then become an extension, an ablation, or even a follow-up paper.
+
+\section{Suggested Tooling and Resources}
+
+The implementation will be easiest with the following ecosystem:
+\begin{itemize}[leftmargin=1.5em]
+    \item \textbf{Gymnasium MuJoCo} for standard locomotion tasks,
+    \item \textbf{Minari} for offline dataset storage and loading,
+    \item \textbf{PyTorch} for the custom continuous-time SSM prototype,
+    \item \textbf{LocoMuJoCo} later for stronger randomized-physics locomotion stress tests.
+\end{itemize}
+
+\section{Conclusion}
+
+The practical path is clear: build the narrow version first, validate it on custom physics-randomized MuJoCo datasets with timestamp jitter, and only then layer on more ambitious offline-RL machinery. That gives the idea the highest chance of producing a clean, defensible ICML result.
+
+
+\end{document}

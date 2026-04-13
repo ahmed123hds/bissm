@@ -1,0 +1,23 @@
+{
+  "batch_size": 4,
+  "d_model": 64,
+  "dataset_root": "BiSSM/artifacts/smoke_pendulum/dataset",
+  "depth": 2,
+  "device": "cpu",
+  "dropout": 0.1,
+  "eval_interval": 10,
+  "gamma": 1.0,
+  "grad_clip": 1.0,
+  "lambda_bis": 0.1,
+  "lr": 0.0003,
+  "model_name": "ct_bissm",
+  "num_workers": 0,
+  "output_dir": "BiSSM/artifacts/smoke_pendulum/run",
+  "projection_mode": "last",
+  "seed": 7,
+  "stride": 10,
+  "total_updates": 30,
+  "warmup_steps": 5,
+  "weight_decay": 0.0001,
+  "window_size": 20
+}
