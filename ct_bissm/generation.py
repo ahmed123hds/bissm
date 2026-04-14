@@ -22,6 +22,7 @@ def rollout_episode(
     seed: int,
     checkpoint_path: str | None = None,
     policy_device: str = "cpu",
+    policy_noise_scale: float | None = None,
 ) -> tuple[dict, dict]:
     env = create_env(env_id)
     apply_physics_regime(env, regime)
@@ -31,6 +32,7 @@ def rollout_episode(
         quality=quality,
         checkpoint_path=checkpoint_path,
         device=policy_device,
+        policy_noise_scale=policy_noise_scale,
     )
     rng = np.random.default_rng(seed)
     observation, _ = env.reset(seed=int(seed))
@@ -73,6 +75,7 @@ def rollout_episode(
         "base_dt": float(base_dt),
         "num_steps": int(horizon),
         "episode_return": float(np.sum(episode_data["rewards"])),
+        "policy_noise_scale": None if policy_noise_scale is None else float(policy_noise_scale),
     }
     return episode_data, metadata
 
@@ -89,6 +92,7 @@ def collect_offline_dataset(
     seed: int = 0,
     checkpoint_path: str | None = None,
     policy_device: str = "cpu",
+    policy_noise_scale: float | None = None,
     regimes: Iterable[PhysicsRegime] | None = None,
 ) -> dict:
     dataset_root = ensure_dir(dataset_root)
@@ -116,9 +120,9 @@ def collect_offline_dataset(
                     seed=episode_seed,
                     checkpoint_path=checkpoint_path,
                     policy_device=policy_device,
+                    policy_noise_scale=policy_noise_scale,
                 )
                 append_episode(dataset_root, manifest, episode_data=episode_data, metadata=metadata)
                 episode_seed += 1
     save_manifest(dataset_root, manifest)
     return manifest
-

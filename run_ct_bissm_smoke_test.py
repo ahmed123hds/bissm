@@ -7,9 +7,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from BiSSM.ct_bissm.eval import evaluate_checkpoint
-from BiSSM.ct_bissm.generation import collect_offline_dataset
-from BiSSM.ct_bissm.trainer import TrainConfig, train_model
+try:
+    from BiSSM.ct_bissm.eval import evaluate_checkpoint
+    from BiSSM.ct_bissm.generation import collect_offline_dataset
+    from BiSSM.ct_bissm.trainer import TrainConfig, train_model
+except ModuleNotFoundError:
+    from ct_bissm.eval import evaluate_checkpoint
+    from ct_bissm.generation import collect_offline_dataset
+    from ct_bissm.trainer import TrainConfig, train_model
 
 
 def main() -> None:

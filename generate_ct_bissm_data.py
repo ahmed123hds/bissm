@@ -8,7 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from BiSSM.ct_bissm.generation import collect_offline_dataset
+try:
+    from BiSSM.ct_bissm.generation import collect_offline_dataset
+except ModuleNotFoundError:
+    from ct_bissm.generation import collect_offline_dataset
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--checkpoint-path", type=str, default=None)
     parser.add_argument("--policy-device", type=str, default="cpu")
+    parser.add_argument("--policy-noise-scale", type=float, default=None)
     return parser.parse_args()
 
 
@@ -41,6 +45,7 @@ def main() -> None:
         seed=args.seed,
         checkpoint_path=args.checkpoint_path,
         policy_device=args.policy_device,
+        policy_noise_scale=args.policy_noise_scale,
     )
     print(f"Wrote {len(manifest['episodes'])} episodes to {args.output_dir}")
 

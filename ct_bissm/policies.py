@@ -125,6 +125,7 @@ def build_policy(
     quality: str = "medium",
     checkpoint_path: Optional[str] = None,
     device: str = "cpu",
+    policy_noise_scale: Optional[float] = None,
 ) -> BehaviorPolicy:
     policy_name = policy_name.lower()
     quality = quality.lower()
@@ -159,9 +160,12 @@ def build_policy(
     else:
         raise ValueError(f"Unknown policy_name '{policy_name}'.")
 
-    noise_by_quality = {
-        "expert": 0.03,
-        "medium": 0.18,
+    default_noise_by_quality = {
+        "expert": 0.0,
+        "medium": 0.0,
         "random": 1.00,
     }
-    return NoisyPolicy(base=base, action_space=env.action_space, noise_scale=noise_by_quality.get(quality, 0.18))
+    noise_scale = default_noise_by_quality.get(quality, 0.0) if policy_noise_scale is None else policy_noise_scale
+    if noise_scale <= 0.0:
+        return base
+    return NoisyPolicy(base=base, action_space=env.action_space, noise_scale=noise_scale)

@@ -8,7 +8,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from BiSSM.ct_bissm.eval import evaluate_checkpoint
+try:
+    from BiSSM.ct_bissm.eval import evaluate_checkpoint
+except ModuleNotFoundError:
+    from ct_bissm.eval import evaluate_checkpoint
 
 
 def parse_args() -> argparse.Namespace:
