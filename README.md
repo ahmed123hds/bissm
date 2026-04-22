@@ -48,3 +48,17 @@ python BiSSM/train_sac_collector.py --env-id HalfCheetah-v5 --output-dir BiSSM/c
 python BiSSM/generate_ct_bissm_data.py --env-id HalfCheetah-v5 --output-dir BiSSM/data/halfcheetah_expert --policy-name sb3 --checkpoint-path BiSSM/collectors/halfcheetah_sac/expert_model.zip --qualities expert --policy-noise-scale 0.0 --episodes-per-regime 50 --max-steps 1000 --jitter 0.2
 python BiSSM/generate_ct_bissm_data.py --env-id HalfCheetah-v5 --output-dir BiSSM/data/halfcheetah_medium --policy-name sb3 --checkpoint-path BiSSM/collectors/halfcheetah_sac/medium_model.zip --qualities medium --policy-noise-scale 0.0 --episodes-per-regime 50 --max-steps 1000 --jitter 0.2
 ```
+
+Render a SAC collector rollout to a GIF:
+
+```bash
+source /home/filliones/Downloads/Documents/Work/Research/CVPR/pytorch_env/bin/activate
+python BiSSM/render_sac_rollout.py --env-id HalfCheetah-v5 --checkpoint-path BiSSM/collectors/halfcheetah_sac/expert_model.zip --output-gif BiSSM/collectors/halfcheetah_sac/halfcheetah_expert.gif --episodes 1 --max-steps 1000 --fps 30 --frame-skip 4
+```
+
+Watch a SAC collector live:
+
+```bash
+source /home/filliones/Downloads/Documents/Work/Research/CVPR/pytorch_env/bin/activate
+python BiSSM/watch_sac_live.py --env-id HalfCheetah-v5 --checkpoint-path BiSSM/collectors/halfcheetah_sac/expert_model.zip --episodes 1 --max-steps 1000
+```
