@@ -220,7 +220,10 @@ class OfflineWindowPairDataset(Dataset):
         action_slice = actions[start:stop]
         reward_slice = rewards[start:stop]
         done_slice = dones[start:stop]
-        delta_slice = delta_t[start:stop]
+        delta_slice = np.empty_like(reward_slice, dtype=np.float32)
+        delta_slice[0] = delta_t[start - 1] if start > 0 else float(record.get("base_dt", self.stats.base_dt))
+        if len(delta_slice) > 1:
+            delta_slice[1:] = delta_t[start : stop - 1]
         prev_actions = np.zeros_like(action_slice, dtype=np.float32)
         prev_rewards = np.zeros((len(reward_slice), 1), dtype=np.float32)
         if start > 0:
@@ -229,7 +232,8 @@ class OfflineWindowPairDataset(Dataset):
         if len(action_slice) > 1:
             prev_actions[1:] = action_slice[:-1]
             prev_rewards[1:, 0] = reward_slice[:-1]
-        returns_to_go = discounted_cumsum(reward_slice, gamma=self.gamma).reshape(-1, 1)
+        episode_returns_to_go = discounted_cumsum(rewards, gamma=self.gamma)
+        returns_to_go = episode_returns_to_go[start:stop].reshape(-1, 1)
         state_mean = self.stats.state_mean
         state_std = self.stats.state_std
         base_dt = max(1e-6, float(record.get("base_dt", self.stats.base_dt)))
@@ -262,4 +266,3 @@ class OfflineWindowPairDataset(Dataset):
             "anchor": self._window_to_tensors(anchor_entry),
             "partner": self._window_to_tensors(partner_entry),
         }
-
