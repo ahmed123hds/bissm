@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a strong SB3 SAC collector for CT-BiSSM datasets.")
     parser.add_argument("--env-id", type=str, default="HalfCheetah-v5")
     parser.add_argument("--output-dir", type=str, required=True)
+    parser.add_argument("--init-checkpoint", type=str, default=None)
     parser.add_argument("--total-timesteps", type=int, default=1_000_000)
     parser.add_argument("--medium-timestep", type=int, default=None)
     parser.add_argument("--eval-freq", type=int, default=10_000)
@@ -45,6 +46,7 @@ def main() -> None:
     config = SACTrainConfig(
         env_id=args.env_id,
         output_dir=args.output_dir,
+        init_checkpoint=args.init_checkpoint,
         total_timesteps=args.total_timesteps,
         medium_timestep=args.medium_timestep,
         eval_freq=args.eval_freq,

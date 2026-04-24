@@ -16,6 +16,7 @@ from .utils import ensure_dir, save_json
 class SACTrainConfig:
     env_id: str
     output_dir: str
+    init_checkpoint: str | None = None
     total_timesteps: int = 1_000_000
     medium_timestep: int | None = None
     eval_freq: int = 10_000
@@ -187,24 +188,42 @@ def train_sac_behavior_policy(config: SACTrainConfig) -> dict[str, Any]:
         ]
     )
 
-    model = SAC(
-        policy="MlpPolicy",
-        env=train_env,
-        learning_rate=config.learning_rate,
-        buffer_size=config.buffer_size,
-        learning_starts=config.learning_starts,
-        batch_size=config.batch_size,
-        tau=config.tau,
-        gamma=config.gamma,
-        train_freq=config.train_freq,
-        gradient_steps=config.gradient_steps,
-        ent_coef=config.ent_coef,
-        seed=config.seed,
-        device=config.device,
-        verbose=config.verbose,
-        tensorboard_log=str(tb_dir),
-        policy_kwargs={"net_arch": list(config.net_arch)},
-    )
+    if config.init_checkpoint:
+        model = SAC.load(
+            config.init_checkpoint,
+            env=train_env,
+            device=config.device,
+            custom_objects={
+                # Public SB3 checkpoints may contain serialized callables that are not portable
+                # across Python versions; we replace them with the current training schedule.
+                "learning_rate": config.learning_rate,
+                "lr_schedule": lambda _: config.learning_rate,
+            },
+            print_system_info=False,
+            force_reset=True,
+        )
+        model.verbose = config.verbose
+        model.tensorboard_log = str(tb_dir)
+        model.set_env(train_env)
+    else:
+        model = SAC(
+            policy="MlpPolicy",
+            env=train_env,
+            learning_rate=config.learning_rate,
+            buffer_size=config.buffer_size,
+            learning_starts=config.learning_starts,
+            batch_size=config.batch_size,
+            tau=config.tau,
+            gamma=config.gamma,
+            train_freq=config.train_freq,
+            gradient_steps=config.gradient_steps,
+            ent_coef=config.ent_coef,
+            seed=config.seed,
+            device=config.device,
+            verbose=config.verbose,
+            tensorboard_log=str(tb_dir),
+            policy_kwargs={"net_arch": list(config.net_arch)},
+        )
 
     model.learn(total_timesteps=int(config.total_timesteps), callback=callback, progress_bar=False)
 
