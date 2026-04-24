@@ -35,6 +35,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--net-arch", nargs="+", type=int, default=[256, 256])
+    parser.add_argument("--physics-randomization", type=str, default="none", choices=["none", "train", "val", "test", "all"])
+    parser.add_argument("--eval-physics-split", type=str, default=None, choices=["train", "val", "test", "all"])
     return parser.parse_args()
 
 
@@ -60,6 +62,8 @@ def main() -> None:
         seed=args.seed,
         device=args.device,
         net_arch=tuple(args.net_arch),
+        physics_randomization=args.physics_randomization,
+        eval_physics_split=args.eval_physics_split,
     )
     manifest = train_sac_behavior_policy(config)
     print(manifest)

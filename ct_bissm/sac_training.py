@@ -5,6 +5,10 @@ from pathlib import Path
 from typing import Any
 import shutil
 
+import gymnasium as gym
+import numpy as np
+
+from .envs import apply_physics_regime, create_env, default_regimes
 from .utils import ensure_dir, save_json
 
 
@@ -29,6 +33,8 @@ class SACTrainConfig:
     seed: int = 0
     device: str = "auto"
     net_arch: tuple[int, ...] = field(default_factory=lambda: (256, 256))
+    physics_randomization: str = "none"
+    eval_physics_split: str | None = None
     verbose: int = 1
 
     def resolved_medium_timestep(self) -> int:
@@ -65,6 +71,53 @@ def _copy_if_exists(source: Path, target: Path) -> None:
         shutil.copy2(source, target)
 
 
+class PhysicsSampledEnv(gym.Env):
+    def __init__(self, env_id: str, split: str, seed: int = 0) -> None:
+        self.env_id = env_id
+        self.regimes = [regime for regime in default_regimes(env_id) if split == "all" or regime.split == split]
+        if not self.regimes:
+            raise ValueError(f"No physics regimes found for env_id={env_id!r}, split={split!r}.")
+        template = create_env(env_id)
+        self.observation_space = template.observation_space
+        self.action_space = template.action_space
+        self.metadata = getattr(template, "metadata", {})
+        self.render_mode = getattr(template, "render_mode", None)
+        self.spec = template.spec
+        template.close()
+        self._rng = np.random.default_rng(seed)
+        self._env: gym.Env | None = None
+
+    def _new_env(self):
+        env = create_env(self.env_id)
+        regime = self.regimes[int(self._rng.integers(len(self.regimes)))]
+        apply_physics_regime(env, regime)
+        return env
+
+    def reset(self, *, seed: int | None = None, options: dict | None = None):
+        if seed is not None:
+            self._rng = np.random.default_rng(seed)
+        if self._env is not None:
+            self._env.close()
+        self._env = self._new_env()
+        return self._env.reset(seed=seed, options=options)
+
+    def step(self, action):
+        if self._env is None:
+            self._env = self._new_env()
+            self._env.reset()
+        return self._env.step(action)
+
+    def render(self):
+        if self._env is None:
+            return None
+        return self._env.render()
+
+    def close(self) -> None:
+        if self._env is not None:
+            self._env.close()
+            self._env = None
+
+
 def train_sac_behavior_policy(config: SACTrainConfig) -> dict[str, Any]:
     sb3 = _require_sb3()
     SAC = sb3["SAC"]
@@ -74,24 +127,27 @@ def train_sac_behavior_policy(config: SACTrainConfig) -> dict[str, Any]:
     EvalCallback = sb3["EvalCallback"]
     Monitor = sb3["Monitor"]
     DummyVecEnv = sb3["DummyVecEnv"]
-    import gymnasium as gym
-
     output_dir = ensure_dir(config.output_dir)
     checkpoints_dir = ensure_dir(output_dir / "checkpoints")
     best_dir = ensure_dir(output_dir / "best_model")
     tb_dir = ensure_dir(output_dir / "tensorboard")
 
-    def make_env(seed: int):
+    def make_env(seed: int, physics_split: str | None = None):
         def _factory():
-            env = gym.make(config.env_id)
+            if physics_split is None or physics_split == "none":
+                env = create_env(config.env_id)
+            else:
+                env = PhysicsSampledEnv(config.env_id, physics_split, seed=seed)
             env = Monitor(env)
             env.reset(seed=seed)
             return env
 
         return _factory
 
-    train_env = DummyVecEnv([make_env(config.seed)])
-    eval_env = DummyVecEnv([make_env(config.seed + 10_000)])
+    train_physics_split = None if config.physics_randomization == "none" else config.physics_randomization
+    eval_physics_split = config.eval_physics_split
+    train_env = DummyVecEnv([make_env(config.seed, train_physics_split)])
+    eval_env = DummyVecEnv([make_env(config.seed + 10_000, eval_physics_split)])
 
     class MilestoneCallback(BaseCallback):
         def __init__(self, medium_timestep: int, save_dir: Path, verbose: int = 0) -> None:
@@ -177,4 +233,3 @@ def train_sac_behavior_policy(config: SACTrainConfig) -> dict[str, Any]:
     }
     save_json(manifest, output_dir / "sac_training_manifest.json")
     return manifest
-
